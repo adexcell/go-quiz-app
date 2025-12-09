@@ -1,0 +1,5 @@
+{
+  "name": "Go Quiz Master",
+  "description": "Interactive quiz application for Go programming language interviews, optimized for Telegram Web App.",
+  "requestFramePermissions": []
+}
