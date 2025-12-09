@@ -1,29 +1,73 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { questions } from '../data';
-import { AnswerStatus } from '../types';
-import { CheckCircle2, XCircle, ChevronRight, RotateCcw, Award } from 'lucide-react';
+import { Question, AnswerStatus } from '../types';
+import { CheckCircle2, XCircle, ChevronRight, RotateCcw, Award, Lightbulb, X } from 'lucide-react';
+
+// Shuffled question with reordered options
+interface ShuffledQuestion extends Question {
+  shuffledOptions: string[];
+  shuffledCorrectOptions: number[];
+}
+
+// Fisher-Yates shuffle algorithm
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+// Shuffle a single question's options while tracking correct answers
+function shuffleQuestionOptions(question: Question): ShuffledQuestion {
+  const optionsWithIndices = question.options.map((text, originalIndex) => ({
+    originalIndex,
+    text,
+  }));
+
+  const shuffled = shuffleArray(optionsWithIndices);
+
+  const shuffledCorrectOptions = question.correct_options.map(correctIdx =>
+    shuffled.findIndex(opt => opt.originalIndex === correctIdx)
+  );
+
+  return {
+    ...question,
+    shuffledOptions: shuffled.map(opt => opt.text),
+    shuffledCorrectOptions,
+  };
+}
+
+// Shuffle all questions and their options
+function createShuffledQuiz(): ShuffledQuestion[] {
+  return shuffleArray(questions).map(shuffleQuestionOptions);
+}
 
 export const Quiz: React.FC = () => {
+  const [shuffledQuestions, setShuffledQuestions] = useState<ShuffledQuestion[]>(() => createShuffledQuiz());
   const [currentIndex, setCurrentIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const [isAnswered, setIsAnswered] = useState(false);
   const [showResult, setShowResult] = useState(false);
+  const [showExplanation, setShowExplanation] = useState(false);
 
-  const currentQuestion = questions[currentIndex];
-  const isMultipleChoice = currentQuestion.correct_options.length > 1;
+  const currentQuestion = shuffledQuestions[currentIndex];
+  const isMultipleChoice = currentQuestion?.shuffledCorrectOptions.length > 1;
 
   useEffect(() => {
     // Reset state when question changes
     setSelectedIndices([]);
     setIsAnswered(false);
+    setShowExplanation(false);
   }, [currentIndex]);
 
   const handleOptionSelect = (index: number) => {
     if (isAnswered) return;
 
     if (isMultipleChoice) {
-      setSelectedIndices(prev => 
+      setSelectedIndices(prev =>
         prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
       );
     } else {
@@ -33,17 +77,17 @@ export const Quiz: React.FC = () => {
 
   const submitAnswer = () => {
     setIsAnswered(true);
-    
+
     // Check correctness
-    const correctSet = new Set<number>(currentQuestion.correct_options);
+    const correctSet = new Set<number>(currentQuestion.shuffledCorrectOptions);
     const selectedSet = new Set<number>(selectedIndices);
-    
+
     // For single choice, simple equality check
     // For multi choice, must select ALL correct options and NO incorrect ones? 
     // Or just partial credit? Strict equality is standard for these tests.
     let isCorrect = false;
     if (selectedSet.size === correctSet.size) {
-        isCorrect = [...selectedSet].every((val) => correctSet.has(val));
+      isCorrect = [...selectedSet].every((val) => correctSet.has(val));
     }
 
     if (isCorrect) {
@@ -52,7 +96,7 @@ export const Quiz: React.FC = () => {
   };
 
   const nextQuestion = () => {
-    if (currentIndex < questions.length - 1) {
+    if (currentIndex < shuffledQuestions.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else {
       setShowResult(true);
@@ -60,11 +104,13 @@ export const Quiz: React.FC = () => {
   };
 
   const restartQuiz = () => {
+    setShuffledQuestions(createShuffledQuiz());
     setCurrentIndex(0);
     setScore(0);
     setShowResult(false);
     setSelectedIndices([]);
     setIsAnswered(false);
+    setShowExplanation(false);
   };
 
   if (showResult) {
@@ -73,10 +119,10 @@ export const Quiz: React.FC = () => {
         <Award size={64} className="text-yellow-400" />
         <h2 className="text-3xl font-bold text-white">Quiz Completed!</h2>
         <div className="text-xl text-gray-300">
-          You scored <span className="font-bold text-green-400">{score}</span> out of <span className="font-bold">{questions.length}</span>
+          You scored <span className="font-bold text-green-400">{score}</span> out of <span className="font-bold">{shuffledQuestions.length}</span>
         </div>
         <p className="text-gray-400">
-          {(score / questions.length) * 100 > 70 ? "Great job! You know Go well." : "Keep practicing to master Go internals."}
+          {(score / shuffledQuestions.length) * 100 > 70 ? "Great job! You know Go well." : "Keep practicing to master Go internals."}
         </p>
         <button
           onClick={restartQuiz}
@@ -96,14 +142,14 @@ export const Quiz: React.FC = () => {
         <span className="bg-zinc-800 px-3 py-1 rounded-full text-zinc-300 font-medium border border-zinc-700">
           {currentQuestion.topic}
         </span>
-        <span>{currentIndex + 1} / {questions.length}</span>
+        <span>{currentIndex + 1} / {shuffledQuestions.length}</span>
       </div>
 
       {/* Progress Bar */}
       <div className="w-full h-1 bg-zinc-800 rounded-full mb-8 overflow-hidden">
-        <div 
+        <div
           className="h-full bg-blue-500 transition-all duration-300"
-          style={{ width: `${((currentIndex) / questions.length) * 100}%` }}
+          style={{ width: `${((currentIndex) / shuffledQuestions.length) * 100}%` }}
         />
       </div>
 
@@ -114,26 +160,26 @@ export const Quiz: React.FC = () => {
 
       {/* Options */}
       <div className="space-y-3 mb-8">
-        {currentQuestion.options.map((option, idx) => {
+        {currentQuestion.shuffledOptions.map((option, idx) => {
           let buttonStyle = "border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-gray-300";
-          
-          if (isAnswered) {
-             const isSelected = selectedIndices.includes(idx);
-             const isCorrect = currentQuestion.correct_options.includes(idx);
 
-             if (isCorrect) {
-                // Always highlight correct answer green
-                buttonStyle = "border-green-500/50 bg-green-500/10 text-green-200 ring-1 ring-green-500/50";
-             } else if (isSelected && !isCorrect) {
-                // Wrong selection red
-                buttonStyle = "border-red-500/50 bg-red-500/10 text-red-200 ring-1 ring-red-500/50";
-             } else {
-               // Unselected wrong answers dim
-               buttonStyle = "border-zinc-800 bg-zinc-900/50 text-gray-500 opacity-50";
-             }
+          if (isAnswered) {
+            const isSelected = selectedIndices.includes(idx);
+            const isCorrect = currentQuestion.shuffledCorrectOptions.includes(idx);
+
+            if (isCorrect) {
+              // Always highlight correct answer green
+              buttonStyle = "border-green-500/50 bg-green-500/10 text-green-200 ring-1 ring-green-500/50";
+            } else if (isSelected && !isCorrect) {
+              // Wrong selection red
+              buttonStyle = "border-red-500/50 bg-red-500/10 text-red-200 ring-1 ring-red-500/50";
+            } else {
+              // Unselected wrong answers dim
+              buttonStyle = "border-zinc-800 bg-zinc-900/50 text-gray-500 opacity-50";
+            }
           } else if (selectedIndices.includes(idx)) {
-             // Selected state before submit
-             buttonStyle = "border-blue-500 bg-blue-500/10 text-blue-200 ring-1 ring-blue-500";
+            // Selected state before submit
+            buttonStyle = "border-blue-500 bg-blue-500/10 text-blue-200 ring-1 ring-blue-500";
           }
 
           return (
@@ -144,9 +190,9 @@ export const Quiz: React.FC = () => {
               className={`w-full p-4 text-left rounded-xl border transition-all duration-200 flex items-start group ${buttonStyle}`}
             >
               <div className="flex-shrink-0 mr-3 mt-0.5">
-                {isAnswered && currentQuestion.correct_options.includes(idx) ? (
+                {isAnswered && currentQuestion.shuffledCorrectOptions.includes(idx) ? (
                   <CheckCircle2 size={20} className="text-green-500" />
-                ) : isAnswered && selectedIndices.includes(idx) && !currentQuestion.correct_options.includes(idx) ? (
+                ) : isAnswered && selectedIndices.includes(idx) && !currentQuestion.shuffledCorrectOptions.includes(idx) ? (
                   <XCircle size={20} className="text-red-500" />
                 ) : (
                   <div className={`w-5 h-5 rounded border ${selectedIndices.includes(idx) ? 'bg-blue-500 border-blue-500' : 'border-zinc-600 group-hover:border-zinc-500'} flex items-center justify-center transition-colors`}>
@@ -160,8 +206,8 @@ export const Quiz: React.FC = () => {
         })}
       </div>
 
-      {/* Actions / Feedback */}
-      <div className="min-h-[120px]">
+      {/* Actions */}
+      <div className="h-[60px]">
         {!isAnswered ? (
           <button
             onClick={submitAnswer}
@@ -171,23 +217,48 @@ export const Quiz: React.FC = () => {
             Check Answer
           </button>
         ) : (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-5 mb-4">
-              <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-2">Explanation</h3>
+          <button
+            onClick={nextQuestion}
+            className="w-full py-4 bg-white text-black hover:bg-gray-100 rounded-xl font-bold text-lg flex items-center justify-center space-x-2 transition-colors shadow-lg shadow-white/10"
+          >
+            <span>{currentIndex === shuffledQuestions.length - 1 ? "Finish Quiz" : "Next Question"}</span>
+            <ChevronRight size={20} />
+          </button>
+        )}
+      </div>
+
+      {/* Floating Explanation Toast */}
+      {isAnswered && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
+          {!showExplanation ? (
+            <button
+              onClick={() => setShowExplanation(true)}
+              className="flex items-center space-x-2 px-4 py-3 bg-amber-500/90 hover:bg-amber-500 text-black rounded-full shadow-lg shadow-amber-500/20 transition-all hover:scale-105"
+            >
+              <Lightbulb size={20} />
+              <span className="font-medium">Show Explanation</span>
+            </button>
+          ) : (
+            <div className="bg-zinc-800/95 backdrop-blur-sm border border-zinc-700 rounded-2xl p-5 shadow-2xl max-w-md md:max-w-lg">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center space-x-2 text-amber-400">
+                  <Lightbulb size={20} />
+                  <h3 className="text-sm font-semibold uppercase tracking-wider">Explanation</h3>
+                </div>
+                <button
+                  onClick={() => setShowExplanation(false)}
+                  className="text-zinc-400 hover:text-white transition-colors p-1 -mr-1 -mt-1"
+                >
+                  <X size={18} />
+                </button>
+              </div>
               <p className="text-gray-300 leading-relaxed text-sm md:text-base">
                 {currentQuestion.explanation}
               </p>
             </div>
-            <button
-              onClick={nextQuestion}
-              className="w-full py-4 bg-white text-black hover:bg-gray-100 rounded-xl font-bold text-lg flex items-center justify-center space-x-2 transition-colors shadow-lg shadow-white/10"
-            >
-              <span>{currentIndex === questions.length - 1 ? "Finish Quiz" : "Next Question"}</span>
-              <ChevronRight size={20} />
-            </button>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
